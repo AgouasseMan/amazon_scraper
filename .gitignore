@@ -1,0 +1,19 @@
+# Environnement virtuel
+.venv/
+venv/
+ENV/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Base de données et fichiers de données
+*.db
+*.sqlite3
+data/*.csv
+data/tech/information/*.csv
+
+# Fichiers de configuration IDE
+.vscode/
+.idea/
