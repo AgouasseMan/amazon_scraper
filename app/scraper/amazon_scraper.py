@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -8,14 +10,21 @@ from app.scraper.parsing import extraire_produits
 
 class AmazonScraper:
 
-    def scraper(self):
+    def scraper(self, recherche="ordinateur"):
         driver = creer_driver()
 
         try:
-            print("Ouverture de la page Amazon...")
-            driver.get(SEARCH_URL)
+            print("\nDémarrage du scraping...")
 
-            # Attendre le chargement de la page
+            # Construire l'URL de recherche
+            base_url = SEARCH_URL.split("?")[0]
+            url = f"{base_url}?{urlencode({'k': recherche})}"
+
+            print("URL demandée :", url)
+
+            driver.get(url)
+
+            # Attendre la fin du chargement initial
             WebDriverWait(driver, 30).until(
                 lambda d: d.execute_script(
                     "return document.readyState"
@@ -23,9 +32,9 @@ class AmazonScraper:
             )
 
             print("Titre de la page :", driver.title)
-            print("URL :", driver.current_url)
+            print("URL actuelle :", driver.current_url)
 
-            # Attendre les blocs produits, si Amazon les affiche
+            # Vérifier si des résultats apparaissent
             try:
                 WebDriverWait(driver, 15).until(
                     lambda d: d.find_elements(
@@ -34,13 +43,33 @@ class AmazonScraper:
                     )
                 )
             except Exception:
-                print(
-                    "Attention : aucun bloc produit détecté "
-                    "après 15 secondes."
-                )
+                print("\nAucun résultat détecté.")
+                print("Vérifie la page affichée dans Chrome.")
 
-            return extraire_produits(driver)
+                with open(
+                    "page_amazon.html",
+                    "w",
+                    encoding="utf-8"
+                ) as fichier:
+                    fichier.write(driver.page_source)
+
+                print("HTML enregistré dans page_amazon.html")
+                return []
+
+            # Extraire les produits
+            produits = extraire_produits(driver)
+
+            print(
+                f"\nNombre de produits récupérés : {len(produits)}"
+            )
+
+            return produits
+
+        except Exception as erreur:
+            print("Erreur pendant le scraping :", erreur)
+            return []
 
         finally:
             driver.quit()
+
 

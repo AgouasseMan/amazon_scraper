@@ -1,4 +1,5 @@
 from urllib.parse import urljoin
+
 from selenium.webdriver.common.by import By
 from app.models.produit import Produit
 
@@ -20,7 +21,6 @@ def convertir_note(texte):
         return None
 
     try:
-        # Exemple : "4.5 out of 5 stars"
         return float(texte.split()[0].replace(",", "."))
     except (ValueError, IndexError):
         return None
@@ -29,7 +29,6 @@ def convertir_note(texte):
 def extraire_produits(driver):
     produits = []
 
-    # Vérifier que la page contient des résultats Amazon
     blocs = driver.find_elements(
         By.CSS_SELECTOR,
         '[data-component-type="s-search-result"]'
@@ -37,68 +36,86 @@ def extraire_produits(driver):
 
     print(f"\nNombre de blocs trouvés : {len(blocs)}")
 
-    if not blocs:
-        print("Aucun bloc produit détecté.")
-        print("Titre de la page :", driver.title)
-        print("URL actuelle :", driver.current_url)
-
-        # Sauvegarder le HTML pour faciliter le diagnostic
-        with open("page_amazon.html", "w", encoding="utf-8") as fichier:
-            fichier.write(driver.page_source)
-
-        print("Le HTML de la page a été enregistré dans page_amazon.html")
-        return produits
-
     for bloc in blocs:
         try:
-            element_nom = bloc.find_element(By.CSS_SELECTOR, "h2 a")
-            nom = element_nom.text.strip()
+            # Chercher le titre avec plusieurs sélecteurs possibles
+            elements_nom = bloc.find_elements(
+                By.CSS_SELECTOR,
+                "h2 a, h2 span"
+            )
 
-            lien = element_nom.get_attribute("href")
+            nom = ""
+
+            for element in elements_nom:
+                nom = element.text.strip()
+                if nom:
+                    break
+
+            if not nom:
+                continue
+
+            # Chercher le lien du produit
+            liens = bloc.find_elements(
+                By.CSS_SELECTOR,
+                "h2 a"
+            )
+
+            lien = ""
+
+            if liens:
+                lien = liens[0].get_attribute("href") or ""
+
             if lien:
                 lien = urljoin(driver.current_url, lien)
+            else:
+                continue
 
-            try:
-                element_prix = bloc.find_element(
-                    By.CSS_SELECTOR,
-                    ".a-price .a-offscreen"
-                )
+            # Extraire le prix
+            elements_prix = bloc.find_elements(
+                By.CSS_SELECTOR,
+                ".a-price .a-offscreen"
+            )
+
+            prix = None
+
+            if elements_prix:
                 prix = convertir_prix(
-                    element_prix.get_attribute("textContent")
+                    elements_prix[0].get_attribute("textContent")
                 )
-            except Exception:
-                prix = None
 
-            try:
-                element_note = bloc.find_element(
-                    By.CSS_SELECTOR,
-                    "span.a-icon-alt"
-                )
+            # Extraire la note
+            elements_note = bloc.find_elements(
+                By.CSS_SELECTOR,
+                "span.a-icon-alt"
+            )
+
+            note = None
+
+            if elements_note:
                 note = convertir_note(
-                    element_note.get_attribute("textContent")
-                )
-            except Exception:
-                note = None
-
-            if nom and lien:
-                produit = Produit(
-                    nom=nom,
-                    prix=prix,
-                    note=note,
-                    lien=lien
+                    elements_note[0].get_attribute("textContent")
                 )
 
-                produits.append(produit)
+            produit = Produit(
+                nom=nom,
+                prix=prix,
+                note=note,
+                lien=lien
+            )
 
-                print(f"\nProduit : {nom}")
-                print(f"Prix    : {prix}")
-                print(f"Note    : {note}")
+            produits.append(produit)
+
+            print(f"\nProduit : {nom}")
+            print(f"Prix    : {prix}")
+            print(f"Note    : {note}")
+            print(f"Lien    : {lien}")
 
         except Exception as erreur:
-            print("Erreur lors de l'extraction d'un produit :", erreur)
+            print("Produit ignoré :", erreur)
 
     print(f"\nTotal des produits extraits : {len(produits)}")
 
     return produits
+
 
 
