@@ -21,7 +21,7 @@ class AmazonScraper:
             base_url = SEARCH_URL.split("?")[0]
             url = f"{base_url}?{urlencode({'k': recherche})}"
 
-            print(f"URL demandée : {url}")
+            print(f" URL demandée : {url}")
             driver.get(url)
 
             WebDriverWait(driver, 15).until(

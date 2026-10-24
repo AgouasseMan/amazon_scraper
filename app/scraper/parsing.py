@@ -2,6 +2,7 @@ from urllib.parse import urljoin
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
 from app.models.produit import Produit
+import re
 import time
 
 
@@ -9,8 +10,18 @@ def convertir_prix(texte):
     if not texte:
         return None
 
-    # Gérer les prix en euros et dollars
-    texte = texte.replace("$", "").replace("€", "").replace(",", ".").strip()
+    texte = texte.replace("\xa0", "").replace(" ", "")
+    texte = texte.replace("€", "").replace("$", "").replace("£", "")
+
+    if "," in texte and "." in texte:
+        if texte.rfind(",") > texte.rfind("."):
+            texte = texte.replace(".", "").replace(",", ".")
+        else:
+            texte = texte.replace(",", "")
+    elif "," in texte:
+        texte = texte.replace(",", ".")
+
+    texte = re.sub(r"[^0-9.]", "", texte)
 
     try:
         return float(texte)
@@ -22,39 +33,46 @@ def convertir_note(texte):
     if not texte:
         return None
 
-    try:
-        return float(texte.split()[0].replace(",", "."))
-    except (ValueError, IndexError):
-        return None
+    correspondance = re.search(r"(\d+(?:[,.]\d+)?)", texte)
+
+    if correspondance:
+        try:
+            return float(correspondance.group(1).replace(",", "."))
+        except ValueError:
+            return None
+
+    return None
 
 
 def verifier_blocage(driver):
-    """Vérifie si Amazon a bloqué le scraping"""
     titre = driver.title.lower()
     page_source = driver.page_source.lower()
 
-    if "sorry" in titre or "captcha" in page_source or "robot" in page_source:
-        print("Amazon a détecté le scraping !")
-        print("Attente de 5 secondes avant de continuer...")
-        time.sleep(5)
+    if (
+        "captcha" in titre
+        or "captcha" in page_source
+        or "robot check" in titre
+        or "validatecaptcha" in page_source
+    ):
+        print("Attention : Amazon affiche une page de vérification.")
         return True
+
     return False
 
 
 def extraire_produits(driver, max_produits=20):
     produits = []
 
-    # Vérifier si on est bloqué
     if verifier_blocage(driver):
         return produits
 
     print("\nChargement des produits...")
-    for i in range(3):  # Scroll 3 fois
-        driver.execute_script("window.scrollBy(0, 800);")
-        time.sleep(1.5)  # Attendre le chargement
 
-    # Revenir en haut
-    driver.execute_script("window.scrollTo(0, 0);")
+    for _ in range(3):
+        driver.execute_script("window.scrollBy(0, 800);")
+        time.sleep(1)
+
+    driver.execute_script("window.scrollTo(0, 0)")
     time.sleep(1)
 
     blocs = driver.find_elements(
@@ -64,61 +82,86 @@ def extraire_produits(driver, max_produits=20):
 
     print(f"Nombre de blocs trouvés : {len(blocs)}")
 
-    for bloc in blocs[:max_produits]:
+    for bloc in blocs:
+        if len(produits) >= max_produits:
+            break
+
         try:
-            # Chercher le titre
-            elements_nom = bloc.find_elements(
+            # Récupération du nom et du lien
+            liens = bloc.find_elements(
                 By.CSS_SELECTOR,
-                "h2 a span, h2 span"
+                "h2 a"
             )
 
             nom = ""
-            for element in elements_nom:
-                nom = element.text.strip()
-                if nom and len(nom) > 5:
-                    break
-
-            if not nom:
-                continue
-
-            liens = bloc.find_elements(By.CSS_SELECTOR, "h2 a")
             lien = ""
 
-            if liens:
-                lien = liens[0].get_attribute("href") or ""
-                if lien:
-                    lien = urljoin(driver.current_url, lien)
-                else:
-                    continue
-            else:
+            for element in liens:
+                nom = element.text.strip()
+
+                if not nom:
+                    nom = (
+                        element.get_attribute("aria-label") or ""
+                    ).strip()
+
+                if not nom:
+                    spans = element.find_elements(
+                        By.CSS_SELECTOR,
+                        "span"
+                    )
+
+                    for span in spans:
+                        nom = span.text.strip()
+                        if nom:
+                            break
+
+                href = element.get_attribute("href")
+
+                if href:
+                    lien = urljoin(driver.current_url, href)
+
+                if nom and lien:
+                    break
+
+            if not nom or not lien:
+                print("Produit ignoré : nom ou lien introuvable.")
                 continue
 
-            # Extraire le prix
+            # Récupération du prix
             prix = None
-            selecteurs_prix = [
-                ".a-price .a-offscreen",
-                ".a-price-whole",
-                "span.a-price span.a-offscreen"
-            ]
 
-            for selecteur in selecteurs_prix:
-                try:
-                    element_prix = bloc.find_element(By.CSS_SELECTOR, selecteur)
-                    prix_texte = element_prix.get_attribute("textContent")
-                    prix = convertir_prix(prix_texte)
-                    if prix:
-                        break
-                except NoSuchElementException:
-                    continue
+            elements_prix = bloc.find_elements(
+                By.CSS_SELECTOR,
+                ".a-price .a-offscreen"
+            )
 
-            # Extraire la note
+            for element in elements_prix:
+                texte_prix = (
+                    element.get_attribute("textContent") or ""
+                ).strip()
+
+                prix = convertir_prix(texte_prix)
+
+                if prix is not None:
+                    break
+
+            # Récupération de la note
             note = None
-            try:
-                element_note = bloc.find_element(By.CSS_SELECTOR, "span.a-icon-alt")
-                note_texte = element_note.get_attribute("textContent")
-                note = convertir_note(note_texte)
-            except NoSuchElementException:
-                pass
+
+            elements_notes = bloc.find_elements(
+                By.CSS_SELECTOR,
+                "span.a-icon-alt"
+            )
+
+            for element in elements_notes:
+                texte_note = (
+                    element.get_attribute("textContent") or ""
+                ).strip()
+
+                note = convertir_note(texte_note)
+
+                if note is not None:
+                    break
 
             produit = Produit(
                 nom=nom,
@@ -129,14 +172,16 @@ def extraire_produits(driver, max_produits=20):
 
             produits.append(produit)
 
-            print(f"\n✓ Produit : {nom[:50]}...")
-            print(f"  Prix    : {prix} €")
-            print(f"  Note    : {note}/5")
-            print(f"  Lien    : {lien[:60]}...")
+            print(f"\nProduit : {nom[:70]}")
+            print(f"Prix    : {prix} €")
+            print(f"Note    : {note}/5")
+            print(f"Lien    : {lien[:100]}")
 
         except Exception as erreur:
-            print(f"✗ Produit ignoré : {erreur}")
-            continue
+            print(f"Erreur pendant l'extraction : {erreur}")
 
     print(f"\nTotal des produits extraits : {len(produits)}")
+
     return produits
+
+
