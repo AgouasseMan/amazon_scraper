@@ -12,7 +12,7 @@ CSV_PATH = BASE_DIR / "data" / "tech" / "information" / "data.csv"
 # Dossier des exports supplémentaires
 EXPORT_DIR = BASE_DIR / "exports"
 
-# ⚠️ CORRECTION ICI : Utiliser amazon.fr pour une recherche en français
+# CORRECTION ICI : Utiliser amazon.fr pour une recherche en français
 SEARCH_URL = "https://www.amazon.fr/s?k=ordinateur"
 
 # Création automatique des dossiers s'ils n'existent pas
